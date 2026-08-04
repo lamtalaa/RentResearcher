@@ -1,0 +1,57 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches:
+      - main
+      - cursor/rent-recommendations-app-791e
+  schedule:
+    # Refresh the listings snapshot a few times a day (runs from the default branch).
+    - cron: "23 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build fresh listings snapshot
+        # If the listing source rate-limits the runner, fall back to the
+        # committed snapshot instead of failing the deploy.
+        run: npm run snapshot || echo "Snapshot refresh failed — deploying with the committed snapshot."
+
+      - name: Build static site
+        run: npm run build:pages
+        env:
+          PAGES_BASE_PATH: /${{ github.event.repository.name }}
+
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: out
+
+      - id: deployment
+        uses: actions/deploy-pages@v4

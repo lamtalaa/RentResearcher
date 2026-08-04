@@ -3,6 +3,10 @@
 One-click NYC metro rental recommendations, tuned for a real-world profile: a
 **$1,300–$1,400/month budget**, **~$70k income**, and a **~480 credit score**.
 
+**Live demo:** [lamtalaa.github.io/RentResearcher](https://lamtalaa.github.io/RentResearcher/)
+— the hosted version scores a listings snapshot in the browser (refreshed a few
+times a day by GitHub Actions); run locally for on-demand live pulls.
+
 Press one button and the app:
 
 1. Pulls **live listings** (apartments, rooms/shares, and sublets) across the five
@@ -37,6 +41,18 @@ Open [http://localhost:3000](http://localhost:3000) and click **Find my top rent
 - Server-side aggregation in `src/app/api/recommendations/route.ts`
 - Craigslist search-API decoder in `src/lib/craigslist.ts`
 - Scoring engine in `src/lib/scoring.ts`
+
+## Hosting (GitHub Pages)
+
+GitHub Pages can't run the server route, so the static build works differently:
+
+- `npm run snapshot` pulls live listings ($500–$2,500 band) into
+  `public/data/listings.json`
+- `npm run build:pages` produces a fully static export where the browser loads
+  the snapshot and runs the same scoring engine client-side — all profile
+  controls stay interactive
+- `.github/workflows/deploy-pages.yml` refreshes the snapshot and redeploys on
+  every push and every 6 hours
 
 ## Notes
 

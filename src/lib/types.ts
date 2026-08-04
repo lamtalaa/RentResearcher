@@ -65,3 +65,10 @@ export interface RecommendationsResponse {
   results: ScoredListing[];
   totalFound: number;
 }
+
+/** Prebuilt listings snapshot consumed by the static (GitHub Pages) build. */
+export interface ListingsSnapshot {
+  generatedAt: string;
+  sources: SourceStatus[];
+  listings: Listing[];
+}

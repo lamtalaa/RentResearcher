@@ -1,14 +1,23 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
+import { buildRecommendations } from "@/lib/recommend";
+import { buildInsights } from "@/lib/scoring";
 import type {
   Category,
+  ListingsSnapshot,
+  Profile,
   RecommendationsResponse,
   ScoredListing,
 } from "@/lib/types";
 import { CATEGORY_LABELS, DEFAULT_PROFILE } from "@/lib/types";
 
 type SortKey = "score" | "priceAsc" | "priceDesc" | "newest";
+
+// On the static (GitHub Pages) build there is no server: the browser loads a
+// prebuilt listings snapshot and runs the same scoring engine locally.
+const STATIC_MODE = process.env.NEXT_PUBLIC_DATA_MODE === "static";
+const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
 
 const CATEGORY_STYLES: Record<Category, string> = {
   apa: "bg-sky-500/15 text-sky-300 border-sky-500/30",
@@ -181,22 +190,56 @@ export default function Home() {
   const [data, setData] = useState<RecommendationsResponse | null>(null);
   const [sort, setSort] = useState<SortKey>("score");
   const [categoryFilter, setCategoryFilter] = useState<Category | "all">("all");
+  const snapshotRef = useRef<ListingsSnapshot | null>(null);
+
+  const searchStatic = async (): Promise<RecommendationsResponse> => {
+    if (!snapshotRef.current) {
+      const res = await fetch(`${BASE_PATH}/data/listings.json`);
+      if (!res.ok) throw new Error(`Couldn't load the listings snapshot (HTTP ${res.status})`);
+      snapshotRef.current = (await res.json()) as ListingsSnapshot;
+    }
+    const snapshot = snapshotRef.current;
+    const profile: Profile = {
+      minBudget: Math.min(minBudget, maxBudget),
+      maxBudget: Math.max(minBudget, maxBudget),
+      annualIncome: Math.max(0, annualIncome),
+      creditScore: Math.min(850, Math.max(300, creditScore)),
+    };
+    const { results, totalFound } = buildRecommendations(
+      snapshot.listings,
+      profile,
+      categories,
+      150,
+    );
+    return {
+      generatedAt: snapshot.generatedAt,
+      profile,
+      insights: buildInsights(profile),
+      sources: snapshot.sources,
+      results,
+      totalFound,
+    };
+  };
+
+  const searchLive = async (): Promise<RecommendationsResponse> => {
+    const params = new URLSearchParams({
+      minBudget: String(minBudget),
+      maxBudget: String(maxBudget),
+      annualIncome: String(annualIncome),
+      creditScore: String(creditScore),
+      categories: categories.join(","),
+      limit: "150",
+    });
+    const res = await fetch(`/api/recommendations?${params}`);
+    if (!res.ok) throw new Error(`Search failed (HTTP ${res.status})`);
+    return (await res.json()) as RecommendationsResponse;
+  };
 
   const search = async () => {
     setLoading(true);
     setError(null);
     try {
-      const params = new URLSearchParams({
-        minBudget: String(minBudget),
-        maxBudget: String(maxBudget),
-        annualIncome: String(annualIncome),
-        creditScore: String(creditScore),
-        categories: categories.join(","),
-        limit: "150",
-      });
-      const res = await fetch(`/api/recommendations?${params}`);
-      if (!res.ok) throw new Error(`Search failed (HTTP ${res.status})`);
-      const body = (await res.json()) as RecommendationsResponse;
+      const body = await (STATIC_MODE ? searchStatic() : searchLive());
       setData(body);
       if (body.results.length === 0) {
         setError(
@@ -376,8 +419,11 @@ export default function Home() {
       {data && (
         <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-white/50">
           <span>
-            {data.totalFound} live matches · showing top {visibleResults.length} · updated{" "}
-            {new Date(data.generatedAt).toLocaleTimeString()}
+            {data.totalFound} {STATIC_MODE ? "matches" : "live matches"} · showing top{" "}
+            {visibleResults.length} ·{" "}
+            {STATIC_MODE
+              ? `listings snapshot refreshed ${timeAgo(new Date(data.generatedAt).getTime())} (auto-refreshes a few times a day)`
+              : `updated ${new Date(data.generatedAt).toLocaleTimeString()}`}
           </span>
           {data.sources.map((s) => (
             <span

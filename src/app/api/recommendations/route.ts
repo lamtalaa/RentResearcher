@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchCraigslistCategory } from "@/lib/craigslist";
-import { buildInsights, rankListings } from "@/lib/scoring";
+import { buildRecommendations, searchBand } from "@/lib/recommend";
+import { buildInsights } from "@/lib/scoring";
 import {
   Category,
   CATEGORY_LABELS,
@@ -39,13 +40,9 @@ export async function GET(req: NextRequest) {
   const categories: Category[] = requested.length > 0 ? requested : ["apa", "roo", "sub"];
   const limit = num(sp.get("limit"), 30, 1, 200);
 
-  // Search a slightly wider band than the stated budget: under-budget finds are
-  // wins, and a small stretch above catches negotiable listings.
-  const searchMin = Math.max(0, profile.minBudget - 200);
-  const searchMax = profile.maxBudget + 50;
-
+  const band = searchBand(profile);
   const settled = await Promise.allSettled(
-    categories.map((cat) => fetchCraigslistCategory(cat, searchMin, searchMax)),
+    categories.map((cat) => fetchCraigslistCategory(cat, band.min, band.max)),
   );
 
   const sources: SourceStatus[] = [];
@@ -71,26 +68,7 @@ export async function GET(req: NextRequest) {
     }
   });
 
-  const ranked = rankListings(all, profile);
-
-  // Top slice by overall score, but guarantee each category keeps enough
-  // representation for client-side filters (rooms dominate the raw ranking
-  // because they score highest on credit friendliness).
-  const MIN_PER_CATEGORY = 30;
-  const results = ranked.slice(0, limit);
-  const included = new Set(results.map((r) => r.id));
-  for (const cat of categories) {
-    let count = results.filter((r) => r.category === cat).length;
-    if (count >= MIN_PER_CATEGORY) continue;
-    for (const listing of ranked) {
-      if (count >= MIN_PER_CATEGORY) break;
-      if (listing.category !== cat || included.has(listing.id)) continue;
-      results.push(listing);
-      included.add(listing.id);
-      count++;
-    }
-  }
-  results.sort((a, b) => b.score - a.score || b.postedAt - a.postedAt);
+  const { results, totalFound } = buildRecommendations(all, profile, categories, limit);
 
   const body: RecommendationsResponse = {
     generatedAt: new Date().toISOString(),
@@ -98,7 +76,7 @@ export async function GET(req: NextRequest) {
     insights: buildInsights(profile),
     sources,
     results,
-    totalFound: ranked.length,
+    totalFound,
   };
 
   return NextResponse.json(body);
