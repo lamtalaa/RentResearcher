@@ -192,7 +192,7 @@ export default function Home() {
         annualIncome: String(annualIncome),
         creditScore: String(creditScore),
         categories: categories.join(","),
-        limit: "60",
+        limit: "150",
       });
       const res = await fetch(`/api/recommendations?${params}`);
       if (!res.ok) throw new Error(`Search failed (HTTP ${res.status})`);
