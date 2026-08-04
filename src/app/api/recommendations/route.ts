@@ -73,12 +73,31 @@ export async function GET(req: NextRequest) {
 
   const ranked = rankListings(all, profile);
 
+  // Top slice by overall score, but guarantee each category keeps enough
+  // representation for client-side filters (rooms dominate the raw ranking
+  // because they score highest on credit friendliness).
+  const MIN_PER_CATEGORY = 30;
+  const results = ranked.slice(0, limit);
+  const included = new Set(results.map((r) => r.id));
+  for (const cat of categories) {
+    let count = results.filter((r) => r.category === cat).length;
+    if (count >= MIN_PER_CATEGORY) continue;
+    for (const listing of ranked) {
+      if (count >= MIN_PER_CATEGORY) break;
+      if (listing.category !== cat || included.has(listing.id)) continue;
+      results.push(listing);
+      included.add(listing.id);
+      count++;
+    }
+  }
+  results.sort((a, b) => b.score - a.score || b.postedAt - a.postedAt);
+
   const body: RecommendationsResponse = {
     generatedAt: new Date().toISOString(),
     profile,
     insights: buildInsights(profile),
     sources,
-    results: ranked.slice(0, limit),
+    results,
     totalFound: ranked.length,
   };
 
